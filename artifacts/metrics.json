@@ -1,0 +1,30 @@
+{
+  "baseline_logistic_regression": {
+    "model": "Logistic Regression (Baseline)",
+    "split": "validation",
+    "roc_auc": 0.8739,
+    "pr_auc": 0.86,
+    "f1": 0.7826
+  },
+  "xgboost_validation": {
+    "model": "XGBoost",
+    "split": "validation",
+    "roc_auc": 0.8929
+  },
+  "xgboost_test_final": {
+    "model": "XGBoost (Final)",
+    "split": "test",
+    "threshold": 0.363,
+    "roc_auc": 0.8776,
+    "pr_auc": 0.8559,
+    "f1": 0.7305,
+    "precision": 0.5836,
+    "recall": 0.9762
+  },
+  "confusion_matrix_test": {
+    "true_negative": 51,
+    "false_positive": 117,
+    "false_negative": 4,
+    "true_positive": 164
+  }
+}
