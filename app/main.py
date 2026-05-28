@@ -5,9 +5,10 @@ D2C Customer Churn Intelligence & Retention API
 
 import os
 import time
+import json
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import joblib
 import numpy as np
@@ -19,7 +20,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 MODEL_PATH = os.getenv("MODEL_PATH", "artifacts/model.pkl")
+METRICS_PATH = os.getenv("METRICS_PATH", "artifacts/metrics.json")
 _artifacts = None
+_metrics_cache = None
 
 def load_model():
     global _artifacts
@@ -28,6 +31,22 @@ def load_model():
         _artifacts = joblib.load(MODEL_PATH)
         logger.info("Model loaded successfully")
     return _artifacts
+
+
+def load_metrics() -> Optional[Dict[str, Any]]:
+    global _metrics_cache
+    if _metrics_cache is not None:
+        return _metrics_cache
+    try:
+        with open(METRICS_PATH, "r") as f:
+            _metrics_cache = json.load(f)
+    except FileNotFoundError:
+        logger.warning(f"Metrics file not found at {METRICS_PATH}")
+        _metrics_cache = None
+    except Exception as e:
+        logger.warning(f"Failed to load metrics: {e}")
+        _metrics_cache = None
+    return _metrics_cache
 
 # ── Pydantic schemas ──────────────────────────────────────
 
@@ -117,6 +136,12 @@ class HealthResponse(BaseModel):
     model_loaded: bool
     model_path: str
     version: str
+    artifacts_loaded: List[str]
+    metrics: Optional[Dict[str, Any]] = None
+
+
+class SimpleHealthResponse(BaseModel):
+    status: str
 
 
 # ── Inference ─────────────────────────────────────────────
@@ -257,19 +282,55 @@ app = FastAPI(
 )
 
 
+@app.get("/", response_model=SimpleHealthResponse, tags=["Health"])
+def root():
+    """Simple root response for quick checks."""
+    return SimpleHealthResponse(status="ok")
+
+
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health():
     """Liveness check — returns model load status."""
     loaded = _artifacts is not None
+    artifacts_loaded = list(_artifacts.keys()) if loaded else []
     return HealthResponse(
         status="ok" if loaded else "model_not_loaded",
         model_loaded=loaded,
         model_path=MODEL_PATH,
         version="1.0.0",
+        artifacts_loaded=artifacts_loaded,
+        metrics=load_metrics(),
     )
 
 
-@app.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
+@app.post(
+    "/predict",
+    response_model=PredictionResponse,
+    tags=["Prediction"],
+    summary="Score a single customer",
+    description=(
+        "Accepts one customer feature payload and returns churn probability, "
+        "risk level, and a plain-English explanation."
+    ),
+    responses={
+        200: {
+            "description": "Churn score for one customer",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "customer_id": "CUST00042",
+                        "churn_probability": 0.72,
+                        "predicted_class": 1,
+                        "risk_level": "High",
+                        "risk_explanation": "Key risk signals: low recent activity; 2 support tickets recently.",
+                        "confidence": "Medium",
+                        "threshold_used": 0.27
+                    }
+                }
+            },
+        }
+    },
+)
 def predict(payload: CustomerFeatures):
     """Score a single customer for churn probability."""
     try:
@@ -280,7 +341,47 @@ def predict(payload: CustomerFeatures):
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
-@app.post("/batch_predict", response_model=BatchPredictionResponse, tags=["Prediction"])
+@app.post(
+    "/batch_predict",
+    response_model=BatchPredictionResponse,
+    tags=["Prediction"],
+    summary="Score multiple customers",
+    description="Accepts multiple customer payloads and returns predictions for each.",
+    responses={
+        200: {
+            "description": "Churn scores for a batch of customers",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "predictions": [
+                            {
+                                "customer_id": "CUST00042",
+                                "churn_probability": 0.72,
+                                "predicted_class": 1,
+                                "risk_level": "High",
+                                "risk_explanation": "Key risk signals: low recent activity; 2 support tickets recently.",
+                                "confidence": "Medium",
+                                "threshold_used": 0.27
+                            },
+                            {
+                                "customer_id": "CUST00043",
+                                "churn_probability": 0.12,
+                                "predicted_class": 0,
+                                "risk_level": "Low",
+                                "risk_explanation": "No strong individual risk signals detected. Risk driven by combined behavioral patterns.",
+                                "confidence": "High",
+                                "threshold_used": 0.27
+                            }
+                        ],
+                        "total_customers": 2,
+                        "high_risk_count": 1,
+                        "processing_time_ms": 12.4
+                    }
+                }
+            },
+        }
+    },
+)
 def batch_predict(payload: BatchRequest):
     """Score multiple customers (max 500) in one request."""
     t0 = time.time()
