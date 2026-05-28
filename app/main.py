@@ -14,6 +14,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -138,10 +139,6 @@ class HealthResponse(BaseModel):
     version: str
     artifacts_loaded: List[str]
     metrics: Optional[Dict[str, Any]] = None
-
-
-class SimpleHealthResponse(BaseModel):
-    status: str
 
 
 # ── Inference ─────────────────────────────────────────────
@@ -282,10 +279,10 @@ app = FastAPI(
 )
 
 
-@app.get("/", response_model=SimpleHealthResponse, tags=["Health"])
+@app.get("/", tags=["Health"], include_in_schema=False)
 def root():
-    """Simple root response for quick checks."""
-    return SimpleHealthResponse(status="ok")
+    """Redirect root to Swagger UI for easy testing."""
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])

@@ -1,7 +1,7 @@
 # Part 4 — FastAPI Churn Scoring Service
 ## D2C Customer Churn Intelligence & Retention API
 
-> **Tests: 17/17 passing** | **Endpoints: 3** | **Docker: included**
+> **Tests: 17/17 passing** | **Endpoints: 4** | **Docker: included**
 
 ---
 
@@ -72,7 +72,8 @@ Swagger UI: http://localhost:8000/docs
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | Liveness check + model load status |
+| `GET` | `/` | Redirects to `/docs` for easy testing |
+| `GET` | `/health` | Liveness check + model + metrics status |
 | `POST` | `/predict` | Score a single customer |
 | `POST` | `/batch_predict` | Score up to 500 customers |
 | `GET` | `/docs` | Interactive Swagger UI |
@@ -92,7 +93,15 @@ curl http://localhost:8000/health
   "status": "ok",
   "model_loaded": true,
   "model_path": "artifacts/model.pkl",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "artifacts_loaded": ["preprocessor", "xgb_model", "lr_pipeline", "feature_names", "threshold"],
+  "metrics": {
+    "xgboost_test_final": {
+      "threshold": 0.363,
+      "roc_auc": 0.8776,
+      "pr_auc": 0.8559
+    }
+  }
 }
 ```
 
@@ -139,7 +148,7 @@ curl -X POST http://localhost:8000/predict \
   "risk_level": "Very High",
   "risk_explanation": "Key risk signals: no purchase in 95 days; zero web activity in last 30 days; 2 support tickets recently; high negative sentiment in tickets; not enrolled in loyalty programme; last visit 25 days ago.",
   "confidence": "High",
-  "threshold_used": 0.27
+  "threshold_used": 0.363
 }
 ```
 
@@ -153,7 +162,26 @@ curl -X POST http://localhost:8000/batch_predict \
 
 ```json
 {
-  "predictions": [...],
+  "predictions": [
+    {
+      "customer_id": "CUST00042",
+      "churn_probability": 0.6156,
+      "predicted_class": 1,
+      "risk_level": "High",
+      "risk_explanation": "Key risk signals: no purchase in 95 days; zero web activity in last 30 days; 2 support tickets recently; high negative sentiment in tickets; not enrolled in loyalty programme; last visit 25 days ago.",
+      "confidence": "High",
+      "threshold_used": 0.363
+    },
+    {
+      "customer_id": "CUST00043",
+      "churn_probability": 0.3321,
+      "predicted_class": 0,
+      "risk_level": "Low",
+      "risk_explanation": "No strong individual risk signals detected. Risk driven by combined behavioral patterns.",
+      "confidence": "Low",
+      "threshold_used": 0.363
+    }
+  ],
   "total_customers": 2,
   "high_risk_count": 1,
   "processing_time_ms": 12.4
@@ -174,6 +202,19 @@ curl -X POST http://localhost:8000/batch_predict \
 | `marketing_consent` | str | "Yes" or "No" |
 
 Invalid inputs return `HTTP 422 Unprocessable Entity` with field-level error details.
+
+Common 422 causes:
+- Using placeholder strings for enums (use the allowed values above)
+- Missing any required numeric fields
+- Out-of-range values (e.g., `return_rate_180d > 1.0` or `recency_days < 0`)
+
+---
+
+## Config
+
+Environment variables:
+- `MODEL_PATH` (default: `artifacts/model.pkl`)
+- `METRICS_PATH` (default: `artifacts/metrics.json`)
 
 ---
 
