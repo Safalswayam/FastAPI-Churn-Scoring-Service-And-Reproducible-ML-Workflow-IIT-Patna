@@ -7,6 +7,7 @@ import os
 import time
 import json
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +16,7 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -279,12 +281,6 @@ app = FastAPI(
 )
 
 
-@app.get("/", tags=["Health"], include_in_schema=False)
-def root():
-    """Redirect root to Swagger UI for easy testing."""
-    return RedirectResponse(url="/docs")
-
-
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health():
     """Liveness check — returns model load status."""
@@ -396,3 +392,13 @@ def batch_predict(payload: BatchRequest):
     except Exception as e:
         logger.error(f"Batch prediction error: {e}")
         raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
+
+
+UI_DIST = Path(os.getenv("UI_DIST", "ui/dist"))
+if UI_DIST.exists():
+    app.mount("/", StaticFiles(directory=str(UI_DIST), html=True), name="ui")
+else:
+    @app.get("/", tags=["Health"], include_in_schema=False)
+    def root():
+        """Redirect root to Swagger UI for easy testing."""
+        return RedirectResponse(url="/docs")

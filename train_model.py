@@ -9,7 +9,7 @@ This trains the XGBoost churn model from the raw dataset and saves
 artifacts/model.pkl ready for the FastAPI service.
 
 Usage:
-    python train_model.py --data-dir ./data
+    python train_model.py --data-dir ./capstone_data
     python train_model.py --data-dir /path/to/capstone_data
 """
 
@@ -86,7 +86,7 @@ def train(data_dir: str, output_dir: str = "artifacts"):
     # ── Load snapshot ──────────────────────────────────────────────────────────
     snap_path = os.path.join(data_dir, "rfm_modeling_snapshot.csv")
     if not os.path.exists(snap_path):
-        print(f"ERROR: Cannot find {snap_path}")
+        print(f"ERROR: Cannot find {snap_path}")    
         print("Download the dataset from the project Google Drive and place CSVs in --data-dir")
         sys.exit(1)
 
@@ -129,8 +129,19 @@ def train(data_dir: str, output_dir: str = "artifacts"):
     lr.fit(X_train_pp, y_train)
     lr_proba = lr.predict_proba(X_val_pp)[:, 1]
     lr_pred  = (lr_proba >= 0.5).astype(int)
-    lr_auc   = roc_auc_score(y_val, lr_proba)
-    print(f"  LR Validation ROC-AUC: {lr_auc:.4f}")
+
+    lr_metrics = {
+        "model": "Logistic Regression (Baseline)",
+        "split": "validation",
+        "roc_auc": round(roc_auc_score(y_val, lr_proba), 4),
+        "pr_auc": round(average_precision_score(y_val, lr_proba), 4),
+        "f1": round(f1_score(y_val, lr_pred), 4),
+        "precision": round(precision_score(y_val, lr_pred), 4),
+        "recall": round(recall_score(y_val, lr_pred), 4),
+    }
+    print("  Logistic Regression (Baseline) — Validation")
+    for k, v in lr_metrics.items():
+        print(f"    {k:<12} {v}")
 
     # ── XGBoost ───────────────────────────────────────────────────────────────
     print("Training XGBoost model...")
@@ -145,21 +156,42 @@ def train(data_dir: str, output_dir: str = "artifacts"):
     )
     xgb_model.fit(X_train_pp, y_train, eval_set=[(X_val_pp, y_val)], verbose=False)
     xgb_val_proba = xgb_model.predict_proba(X_val_pp)[:, 1]
-    xgb_auc = roc_auc_score(y_val, xgb_val_proba)
-    print(f"  XGBoost Validation ROC-AUC: {xgb_auc:.4f}  (+{xgb_auc-lr_auc:.4f} vs baseline)")
+    xgb_val_pred  = (xgb_val_proba >= 0.5).astype(int)
+    xgb_metrics = {
+        "model": "XGBoost",
+        "split": "validation",
+        "roc_auc": round(roc_auc_score(y_val, xgb_val_proba), 4),
+        "pr_auc": round(average_precision_score(y_val, xgb_val_proba), 4),
+        "f1": round(f1_score(y_val, xgb_val_pred), 4),
+        "precision": round(precision_score(y_val, xgb_val_pred), 4),
+        "recall": round(recall_score(y_val, xgb_val_pred), 4),
+    }
+    print("  XGBoost — Validation")
+    for k, v in xgb_metrics.items():
+        print(f"    {k:<12} {v}")
+    print(f"\n  Improvement over baseline: ROC-AUC +{xgb_metrics['roc_auc']-lr_metrics['roc_auc']:.4f}")
 
     # ── Business cost-aware threshold ─────────────────────────────────────────
     print("Selecting business-optimal threshold...")
-    _, _, thresh_arr = precision_recall_curve(y_val, xgb_val_proba)
-    best_cost, best_thresh = float("inf"), 0.5
+    prec_arr, rec_arr, thresh_arr = precision_recall_curve(y_val, xgb_val_proba)
+    results = []
     for t in thresh_arr:
         pred = (xgb_val_proba >= t).astype(int)
         tn, fp, fn, tp = confusion_matrix(y_val, pred).ravel()
         cost = fn * FN_COST + fp * FP_COST
-        if cost < best_cost:
-            best_cost  = cost
-            best_thresh = float(t)
-    best_thresh = round(best_thresh, 3)
+        results.append({
+            "threshold": round(float(t), 3),
+            "fn": int(fn),
+            "fp": int(fp),
+            "tp": int(tp),
+            "recall": recall_score(y_val, pred),
+            "precision": precision_score(y_val, pred),
+            "f1": f1_score(y_val, pred),
+            "total_cost": cost,
+        })
+    res_df = pd.DataFrame(results)
+    best_idx = res_df["total_cost"].idxmin()
+    best_thresh = float(res_df.loc[best_idx, "threshold"])
     print(f"  Selected threshold: {best_thresh}  (minimises INR FN*{FN_COST} + FP*{FP_COST})")
 
     # ── Test set evaluation ────────────────────────────────────────────────────
@@ -167,9 +199,17 @@ def train(data_dir: str, output_dir: str = "artifacts"):
     xgb_test_pred  = (xgb_test_proba >= best_thresh).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_test, xgb_test_pred).ravel()
 
-    test_roc = roc_auc_score(y_test, xgb_test_proba)
-    test_f1  = f1_score(y_test, xgb_test_pred)
-    print(f"\n  Test ROC-AUC: {test_roc:.4f}  |  F1: {test_f1:.4f}")
+    test_metrics = {
+        "model": "XGBoost (Final)",
+        "split": "test",
+        "threshold": best_thresh,
+        "roc_auc": round(roc_auc_score(y_test, xgb_test_proba), 4),
+        "pr_auc": round(average_precision_score(y_test, xgb_test_proba), 4),
+        "f1": round(f1_score(y_test, xgb_test_pred), 4),
+        "precision": round(precision_score(y_test, xgb_test_pred), 4),
+        "recall": round(recall_score(y_test, xgb_test_pred), 4),
+    }
+    print(f"\n  Test ROC-AUC: {test_metrics['roc_auc']:.4f}  |  F1: {test_metrics['f1']:.4f}")
     print(f"  TP={tp}  TN={tn}  FP={fp}  FN={fn}")
 
     # ── Save artifacts ─────────────────────────────────────────────────────────
@@ -186,29 +226,24 @@ def train(data_dir: str, output_dir: str = "artifacts"):
     joblib.dump(artifacts, "artifacts/model.pkl")
 
     metrics = {
-        "baseline_logistic_regression": {
-            "model": "Logistic Regression (Baseline)", "split": "validation",
-            "roc_auc": round(lr_auc, 4),
-            "pr_auc":  round(average_precision_score(y_val, lr_proba), 4),
-            "f1":      round(f1_score(y_val, lr_pred), 4),
-        },
-        "xgboost_validation": {
-            "model": "XGBoost", "split": "validation",
-            "roc_auc": round(xgb_auc, 4),
-        },
-        "xgboost_test_final": {
-            "model": "XGBoost (Final)", "split": "test",
-            "threshold": best_thresh,
-            "roc_auc":   round(test_roc, 4),
-            "pr_auc":    round(average_precision_score(y_test, xgb_test_proba), 4),
-            "f1":        round(test_f1, 4),
-            "precision": round(precision_score(y_test, xgb_test_pred), 4),
-            "recall":    round(recall_score(y_test, xgb_test_pred), 4),
-        },
+        "baseline_logistic_regression": lr_metrics,
+        "xgboost_validation": xgb_metrics,
+        "xgboost_test_final": {**test_metrics},
         "confusion_matrix_test": {
-            "true_negative": int(tn), "false_positive": int(fp),
-            "false_negative": int(fn), "true_positive": int(tp),
+            "true_negative": int(tn),
+            "false_positive": int(fp),
+            "false_negative": int(fn),
+            "true_positive": int(tp),
         },
+        "business_cost_at_threshold": {
+            "fn_cost_per_customer": FN_COST,
+            "fp_cost_per_customer": FP_COST,
+            "total_test_cost": int(fn * FN_COST + fp * FP_COST),
+        },
+        "feature_count": len(ALL_NUM) + len(ALL_CAT),
+        "train_size": int(len(X_train)),
+        "val_size": int(len(X_val)),
+        "test_size": int(len(X_test)),
     }
     metrics_path = os.path.join(output_dir, "metrics.json")
     with open(metrics_path, "w") as f:

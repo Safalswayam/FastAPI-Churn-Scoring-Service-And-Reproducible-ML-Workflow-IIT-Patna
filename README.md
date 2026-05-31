@@ -7,7 +7,7 @@
 
 ## Overview
 
-Internal REST API that scores customers for 60-day churn probability using a trained XGBoost model. CRM tools call `/predict` with a customer's behavioral features and receive a churn probability, risk level, and plain-English explanation.
+Internal REST API and frontend UI that score customers for 60-day churn probability using a trained XGBoost model. CRM tools call `/predict` with a customer's behavioral features and receive a churn probability, risk level, and plain-English explanation. The UI provides single-customer scoring and batch CSV uploads.
 
 ---
 
@@ -24,6 +24,7 @@ part4_api/
 ├── tests/
 │   └── test_api.py           # 17 pytest test cases (all passing)
 ├── train_model.py            # Standalone training script (run if no model.pkl)
+├── ui/                        # React + Vite frontend
 ├── monitoring_plan.md        # Post-deployment monitoring & responsible-use guide
 ├── Dockerfile                # Container deployment
 ├── metrics.json              # Example runtime metrics
@@ -43,6 +44,11 @@ pip install -r requirements.txt
 
 # 2. Start the API (model.pkl already included)
 uvicorn app.main:app --reload --port 8000
+
+# 3. Start the UI (optional)
+cd ui
+npm install
+npm run dev
 ```
 
 ### Option B — Train Model from Scratch
@@ -55,6 +61,11 @@ python train_model.py --data-dir /path/to/capstone_data
 
 # Then start the API
 uvicorn app.main:app --reload --port 8000
+
+# Start the UI (optional)
+cd ui
+npm install
+npm run dev
 ```
 
 ### Option C — Docker
@@ -65,6 +76,7 @@ docker run -p 8000:8000 churn-api
 ```
 
 Swagger UI: http://localhost:8000/docs
+UI: http://localhost:8000/
 
 ---
 
@@ -77,6 +89,22 @@ Swagger UI: http://localhost:8000/docs
 | `POST` | `/predict` | Score a single customer |
 | `POST` | `/batch_predict` | Score up to 500 customers |
 | `GET` | `/docs` | Interactive Swagger UI |
+
+---
+
+## Frontend UI
+
+The UI lives in `part4_api/ui`. In development it runs on the Vite dev server
+and proxies API calls to the backend.
+
+```bash
+cd part4_api/ui
+npm install
+npm run dev
+```
+
+The dev UI expects the API at `http://localhost:8000` (via the Vite `/api` proxy).
+In Docker, the UI is built and served by FastAPI at the root URL.
 
 ---
 

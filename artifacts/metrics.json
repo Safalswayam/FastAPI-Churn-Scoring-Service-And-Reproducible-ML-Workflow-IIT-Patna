@@ -4,12 +4,18 @@
     "split": "validation",
     "roc_auc": 0.8739,
     "pr_auc": 0.86,
-    "f1": 0.7826
+    "f1": 0.7826,
+    "precision": 0.7697,
+    "recall": 0.7959
   },
   "xgboost_validation": {
     "model": "XGBoost",
     "split": "validation",
-    "roc_auc": 0.8929
+    "roc_auc": 0.8929,
+    "pr_auc": 0.8739,
+    "f1": 0.7917,
+    "precision": 0.8085,
+    "recall": 0.7755
   },
   "xgboost_test_final": {
     "model": "XGBoost (Final)",
@@ -26,5 +32,14 @@
     "false_positive": 117,
     "false_negative": 4,
     "true_positive": 164
-  }
+  },
+  "business_cost_at_threshold": {
+    "fn_cost_per_customer": 500,
+    "fp_cost_per_customer": 30,
+    "total_test_cost": 5510
+  },
+  "feature_count": 30,
+  "train_size": 1728,
+  "val_size": 336,
+  "test_size": 336
 }
